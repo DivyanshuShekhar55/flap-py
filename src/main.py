@@ -6,9 +6,12 @@ import numpy as np
 # Initialize Pygame
 pygame.init()
 
-# Initialize face classifier
-face_classifier = cv2.CascadeClassifier("src/haarcascade_frontalface_default.xml")
-video_cam = cv2.VideoCapture(0)
+# Initialize DNN face detector
+modelFile = "src/res10_300x300_ssd_iter_140000.caffemodel"
+configFile = "src/deploy.prototxt.txt"
+net = cv2.dnn.readNetFromCaffe(configFile, modelFile)
+
+video_cam = cv2.VideoCapture(1)
 
 if not video_cam.isOpened():
     print("Cannot access the camera")
@@ -27,6 +30,7 @@ PIPE_WIDTH = 50
 PIPE_SPEED = 15
 BIRD_HEIGHT_PERCENT_TO_SCREEN = 0.05
 BIRD_X_POS = SCREEN_WIDTH // 4
+PROCESSING_SCALE = 0.5  # Scale factor for the processing frame
 
 # Colors
 WHITE = (255, 255, 255)
@@ -41,21 +45,63 @@ bird_image = pygame.transform.scale(bird_image, (50, int(SCREEN_HEIGHT * BIRD_HE
 pipe_image = pygame.transform.scale(pipe_image, (PIPE_WIDTH, SCREEN_HEIGHT))
 base_image = pygame.transform.scale(base_image, (SCREEN_WIDTH, int(SCREEN_HEIGHT * 0.1)))
 
-# Bird class
 class Bird:
     def __init__(self):
         self.x = BIRD_X_POS
         self.y = SCREEN_HEIGHT // 2
+        self.target_y = self.y
+        self.y_history = [self.y] * 3
+        self.dead_zone = 5
+        self.max_speed = 30
 
     def update(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_classifier.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        # Resize frame for faster processing
+        small_frame = cv2.resize(frame, (0, 0), fx=PROCESSING_SCALE, fy=PROCESSING_SCALE)
+        
+        # Prepare the frame for DNN
+        blob = cv2.dnn.blobFromImage(small_frame, 1.0, (300, 300), [104, 117, 123], False, False)
+        
+        # Set the input and perform inference
+        net.setInput(blob)
+        detections = net.forward()
+        
+        max_confidence = 0
+        max_face = None
+        
+        # Get frame dimensions
+        h, w = small_frame.shape[:2]
+        
+        # Find the face with highest confidence
+        for i in range(detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+            if confidence > 0.5 and confidence > max_confidence:  # Confidence threshold
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (x, y, x2, y2) = box.astype("int")
+                max_face = (x, y, x2 - x, y2 - y)
+                max_confidence = confidence
 
-        if len(faces) > 0:
-            # Find the face with the maximum area
-            max_area_face = max(faces, key=lambda f: f[2] * f[3])
-            (x, y, w, h) = max_area_face
-            self.y = y + h // 2  # Update bird's y position based on the largest face detected
+        if max_face is not None:
+            (x, y, w, h) = max_face
+            
+            # Scale up the coordinates to match the original frame size
+            y = int(y / PROCESSING_SCALE)
+            h = int(h / PROCESSING_SCALE)
+            
+            self.target_y = y + h // 2  # Set target y position based on the detected face
+
+        # Apply dead zone
+        if abs(self.target_y - self.y) > self.dead_zone:
+            # Calculate direction and apply max speed
+            direction = 1 if self.target_y > self.y else -1
+            move_amount = min(abs(self.target_y - self.y), self.max_speed)
+            new_y = self.y + direction * move_amount
+            
+            # Update position history
+            self.y_history.pop(0)
+            self.y_history.append(new_y)
+            
+            # Set new position with weighted average (more weight to recent positions)
+            self.y = int((self.y_history[0] + 2*self.y_history[1] + 3*self.y_history[2]) / 6)
 
     def draw(self, screen):
         screen.blit(bird_image, (self.x, self.y))
@@ -135,7 +181,6 @@ while running:
         # Rotate the frame 90 degrees clockwise if needed
         frame_render = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-        # Use the original frame directly without resizing
         frame_surface = pygame.surfarray.make_surface(cv2.cvtColor(frame_render, cv2.COLOR_BGR2RGB))
         screen.blit(frame_surface, (0, 0))  # Draw the webcam feed as background
 
