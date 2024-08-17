@@ -17,9 +17,6 @@ if not video_cam.isOpened():
 # Get the original resolution
 original_height = int(video_cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-# Calculate scaling factor for height
-scale_factor_height = 2400 / original_height
-
 prev_center_y = None
 alpha = 0.3  # Smoothing factor
 
@@ -39,10 +36,10 @@ def process_frame(frame):
 
         prev_center_y = smooth_center_y
 
-        # Scale the y-coordinate
-        scaled_y = int(smooth_center_y * scale_factor_height / 2.5)
+        # Normalize the y-coordinate
+        normalized_y = smooth_center_y / frame.shape[0]
 
-        return scaled_y, (x, y, w, h)
+        return normalized_y, (x, y, w, h)
 
     return None
 
@@ -53,12 +50,12 @@ while True:
         result = process_frame(resized_frame)
 
         if result:
-            scaled_y, (x, y, w, h) = result
+            normalized_y, (x, y, w, h) = result
             
-            # Write y-coordinate to JSON file
+            # Write normalized y-coordinate to JSON file
             with open('face_y.json', 'w') as f:
-                print("y :" ,scaled_y)
-                json.dump({"y": scaled_y}, f)
+                print("Normalized y:", normalized_y)
+                json.dump({"y": normalized_y}, f)
 
             # Draw rectangle and circle for visualization
             cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
@@ -69,7 +66,7 @@ while True:
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    time.sleep(0.1)  # Polling rate of 0.1 seconds
+    time.sleep(0.033)  # Polling rate of 0.1 seconds
 
 video_cam.release()
 cv2.destroyAllWindows()

@@ -1,26 +1,35 @@
 import pygame
 import random
-import json
-import time
+import cv2
+import numpy as np
 
 # Initialize Pygame
 pygame.init()
 
+# Initialize face classifier
+face_classifier = cv2.CascadeClassifier("src/haarcascade_frontalface_default.xml")
+video_cam = cv2.VideoCapture(0)
+
+if not video_cam.isOpened():
+    print("Cannot access the camera")
+    exit()
+
+# Get camera resolution
+SCREEN_WIDTH = int(video_cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+SCREEN_HEIGHT = int(video_cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+# Set up the display with camera resolution
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Flappy Bird Pygame")
+
 # Constants
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
 PIPE_WIDTH = 50
-PIPE_SPEED = 5
+PIPE_SPEED = 15
 BIRD_HEIGHT_PERCENT_TO_SCREEN = 0.05
 BIRD_X_POS = SCREEN_WIDTH // 4
-BIRD_Y_POS = SCREEN_HEIGHT // 2
 
 # Colors
 WHITE = (255, 255, 255)
-
-# Set up the display
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Flappy Bird Pygame")
 
 # Load images
 bird_image = pygame.image.load('./assests/redbird-upflap.png').convert_alpha()
@@ -36,15 +45,17 @@ base_image = pygame.transform.scale(base_image, (SCREEN_WIDTH, int(SCREEN_HEIGHT
 class Bird:
     def __init__(self):
         self.x = BIRD_X_POS
-        self.y = BIRD_Y_POS
+        self.y = SCREEN_HEIGHT // 2
 
-    def update(self):
-        try:
-            with open('face_y.json', 'r') as f:
-                data = json.load(f)
-                self.y = data['y']
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass  # If file doesn't exist or is invalid, don't update
+    def update(self, frame):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_classifier.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+
+        if len(faces) > 0:
+            # Find the face with the maximum area
+            max_area_face = max(faces, key=lambda f: f[2] * f[3])
+            (x, y, w, h) = max_area_face
+            self.y = y + h // 2  # Update bird's y position based on the largest face detected
 
     def draw(self, screen):
         screen.blit(bird_image, (self.x, self.y))
@@ -87,10 +98,9 @@ class GameManager:
         self.score = 0
         self.is_game_over = False
 
-    def update(self):
+    def update(self, frame):
         if not self.is_game_over:
-            self.bird.update()
-            print("y coor: ", self.bird.y)
+            self.bird.update(frame)
 
             if len(self.pipes) == 0 or self.pipes[-1].x < SCREEN_WIDTH // 2:
                 self.pipes.append(Pipe())
@@ -119,28 +129,31 @@ game = GameManager()
 clock = pygame.time.Clock()
 
 running = True
-last_update = time.time()
-
 while running:
-    screen.fill((0, 0, 0))
+    ret, frame = video_cam.read()
+    if ret:
+        # Rotate the frame 90 degrees clockwise if needed
+        frame_render = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+        # Use the original frame directly without resizing
+        frame_surface = pygame.surfarray.make_surface(cv2.cvtColor(frame_render, cv2.COLOR_BGR2RGB))
+        screen.blit(frame_surface, (0, 0))  # Draw the webcam feed as background
 
-    current_time = time.time()
-    if current_time - last_update >= 0.1:  # Polling rate of 0.1 seconds
-        game.update()
-        last_update = current_time
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
 
-    game.draw(screen)
+        game.update(frame)  # Update game state with the current frame
+        game.draw(screen)  # Draw the game elements
 
-    pygame.display.flip()
-    clock.tick(30)  # 30 FPS
+        pygame.display.flip()  # Update the display
+        clock.tick(30)  # Maintain 30 FPS
 
-    if game.is_game_over:
-        print("Game Over! Final Score:", game.score)
-        pygame.time.wait(2000)  # Wait for 2 seconds
-        game.reset()
+        if game.is_game_over:
+            print("Game Over! Final Score:", game.score)
+            pygame.time.wait(2000)  # Wait for 2 seconds before resetting
+            game.reset()
 
+video_cam.release()
+cv2.destroyAllWindows()
 pygame.quit()
