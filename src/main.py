@@ -41,6 +41,23 @@ bird_image = pygame.transform.scale(bird_image, (50, int(SCREEN_HEIGHT * BIRD_HE
 pipe_image = pygame.transform.scale(pipe_image, (PIPE_WIDTH, SCREEN_HEIGHT))
 base_image = pygame.transform.scale(base_image, (SCREEN_WIDTH, int(SCREEN_HEIGHT * 0.1)))
 
+# font load
+font_large = pygame.font.Font('./assests/PressStart2P-Regular.ttf', 32)
+font_small = pygame.font.Font('./assests/PressStart2P-Regular.ttf', 24)
+
+game_over_text = font_large.render('GAME OVER', True, (255,0,0), None )
+textRect = game_over_text.get_rect()
+textRect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
+
+final_score_heading_text = font_small.render('Score', True, (255,0,0), None )
+final_score_heading_textRect = final_score_heading_text.get_rect()
+final_score_heading_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.5)
+
+
+final_score_text = font_small.render('Score', True, (255,0,0), None )
+final_score_textRect = final_score_text.get_rect()
+final_score_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.2)
+
 # Bird class
 class Bird:
     def __init__(self):
@@ -126,6 +143,14 @@ class GameManager:
         font = pygame.font.Font(None, 74)
         text = font.render(str(self.score), 1, WHITE)
         screen.blit(text, (SCREEN_WIDTH // 2, 50))
+    
+    def display_score(self, screen, score):
+        screen.blit(game_over_text, textRect)
+        screen.blit(final_score_heading_text, final_score_heading_textRect)
+        final_score_text = font_small.render(score, True, (255,0,0), None )
+        final_score_textRect = final_score_text.get_rect()
+        final_score_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.2)
+        screen.blit(final_score_text, final_score_textRect)
 
 # Game loop
 game = GameManager()
@@ -154,6 +179,8 @@ while running:
 
         if game.is_game_over:
             print("Game Over! Final Score:", game.score)
+            game.display_score(screen, game.score)
+            pygame.display.update()
             pygame.time.wait(2000)  # Wait for 2 seconds before resetting
             game.reset()
 
