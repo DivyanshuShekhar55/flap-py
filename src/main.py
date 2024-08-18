@@ -121,19 +121,18 @@ class Pipe:
         # Draw top pipe
         screen.blit(pipe_image, (self.x, self.height - SCREEN_HEIGHT))
         # Draw bottom pipe
-        screen.blit(pipe_image, (self.x, self.height + int(3 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT)))
+        screen.blit(pipe_image, (self.x, self.height + int(3.5 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT)))
 
     def is_offscreen(self):
         return self.x < -PIPE_WIDTH
 
     def collide(self, bird):
-        # Define a leniency buffer
-        leniency = -10  # Adjust this value to increase or decrease leniency
-
-        within_pipe_x_bounds = bird.x + 50 >= self.x - leniency and bird.x <= self.x + PIPE_WIDTH + leniency
-        within_top_pipe_y_bounds = bird.y >= -leniency and bird.y <= self.height + leniency
-        within_bottom_pipe_y_bounds = bird.y + int(SCREEN_HEIGHT * BIRD_HEIGHT_PERCENT_TO_SCREEN) >= self.height + int(3 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT) - leniency and bird.y <= SCREEN_HEIGHT + leniency
-
+        within_pipe_x_bounds = bird.x +50 > self.x and bird.x < self.x + PIPE_WIDTH
+        
+        within_top_pipe_y_bounds = bird.y-25 >= 0 and bird.y < self.height
+        
+        within_bottom_pipe_y_bounds = bird.y-25 + int(SCREEN_HEIGHT * BIRD_HEIGHT_PERCENT_TO_SCREEN) > self.height + int(3.5 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT) and bird.y <= SCREEN_HEIGHT
+        
         return within_pipe_x_bounds and (within_top_pipe_y_bounds or within_bottom_pipe_y_bounds)
 
 # Game Manager class
