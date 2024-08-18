@@ -45,6 +45,8 @@ bird_image = pygame.transform.scale(bird_image, (50, int(SCREEN_HEIGHT * BIRD_HE
 pipe_image = pygame.transform.scale(pipe_image, (PIPE_WIDTH, SCREEN_HEIGHT))
 base_image = pygame.transform.scale(base_image, (SCREEN_WIDTH, int(SCREEN_HEIGHT * 0.1)))
 
+# Class Bird
+
 class Bird:
     def __init__(self):
         self.x = BIRD_X_POS
@@ -125,9 +127,13 @@ class Pipe:
         return self.x < -PIPE_WIDTH
 
     def collide(self, bird):
-        within_pipe_x_bounds = bird.x + 50 >= self.x and bird.x <= self.x + PIPE_WIDTH
-        within_top_pipe_y_bounds = bird.y >= 0 and bird.y <= self.height
-        within_bottom_pipe_y_bounds = bird.y + int(SCREEN_HEIGHT * BIRD_HEIGHT_PERCENT_TO_SCREEN) >= self.height + int(3 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT) and bird.y <= SCREEN_HEIGHT
+        # Define a leniency buffer
+        leniency = -10  # Adjust this value to increase or decrease leniency
+
+        within_pipe_x_bounds = bird.x + 50 >= self.x - leniency and bird.x <= self.x + PIPE_WIDTH + leniency
+        within_top_pipe_y_bounds = bird.y >= -leniency and bird.y <= self.height + leniency
+        within_bottom_pipe_y_bounds = bird.y + int(SCREEN_HEIGHT * BIRD_HEIGHT_PERCENT_TO_SCREEN) >= self.height + int(3 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT) - leniency and bird.y <= SCREEN_HEIGHT + leniency
+
         return within_pipe_x_bounds and (within_top_pipe_y_bounds or within_bottom_pipe_y_bounds)
 
 # Game Manager class
