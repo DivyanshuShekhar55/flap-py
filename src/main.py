@@ -6,8 +6,11 @@ import numpy as np
 # Initialize Pygame
 pygame.init()
 
-# Initialize face classifier
-face_classifier = cv2.CascadeClassifier("src/haarcascade_frontalface_default.xml")
+# Initialize DNN face detector
+modelFile = "src/res10_300x300_ssd_iter_140000.caffemodel"
+configFile = "src/deploy.prototxt.txt"
+net = cv2.dnn.readNetFromCaffe(configFile, modelFile)
+
 video_cam = cv2.VideoCapture(0)
 
 if not video_cam.isOpened():
@@ -27,6 +30,7 @@ PIPE_WIDTH = 50
 PIPE_SPEED = 15
 BIRD_HEIGHT_PERCENT_TO_SCREEN = 0.05
 BIRD_X_POS = SCREEN_WIDTH // 4
+PROCESSING_SCALE = 0.5  # Scale factor for the processing frame
 
 # Colors
 WHITE = (255, 255, 255)
@@ -45,37 +49,80 @@ base_image = pygame.transform.scale(base_image, (SCREEN_WIDTH, int(SCREEN_HEIGHT
 font_large = pygame.font.Font('./assests/PressStart2P-Regular.ttf', 32)
 font_small = pygame.font.Font('./assests/PressStart2P-Regular.ttf', 24)
 
-game_over_text = font_large.render('GAME OVER', True, (255,0,0), None )
+game_over_text = font_large.render('GAME OVER', True, (255, 0, 0), None)
 textRect = game_over_text.get_rect()
 textRect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 
-final_score_heading_text = font_small.render('Score', True, (255,0,0), None )
+final_score_heading_text = font_small.render('Score', True, (255, 0, 0), None)
 final_score_heading_textRect = final_score_heading_text.get_rect()
-final_score_heading_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.5)
+final_score_heading_textRect.center = (SCREEN_WIDTH // 2.7, SCREEN_HEIGHT // 1.5)
 
-
-final_score_text = font_small.render('Score', True, (255,0,0), None )
+final_score_text = font_small.render('Score', True, (255, 0, 0), None)
 final_score_textRect = final_score_text.get_rect()
-final_score_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.2)
+final_score_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.35)
 
-# Bird class
+# Class Bird
 class Bird:
     def __init__(self):
         self.x = BIRD_X_POS
         self.y = SCREEN_HEIGHT // 2
+        self.target_y = self.y
+        self.y_history = [self.y] * 3
+        self.dead_zone = 5
+        self.max_speed = 30
 
     def update(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = face_classifier.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+        # Resize frame for faster processing
+        small_frame = cv2.resize(frame, (0, 0), fx=PROCESSING_SCALE, fy=PROCESSING_SCALE)
 
-        if len(faces) > 0:
-            # Find the face with the maximum area
-            max_area_face = max(faces, key=lambda f: f[2] * f[3])
-            (x, y, w, h) = max_area_face
-            self.y = y + h // 2  # Update bird's y position based on the largest face detected
+        # Prepare the frame for DNN
+        blob = cv2.dnn.blobFromImage(small_frame, 1.0, (300, 300), [104, 117, 123], False, False)
+
+        # Set the input and perform inference
+        net.setInput(blob)
+        detections = net.forward()
+
+        max_confidence = 0
+        max_face = None
+
+        # Get frame dimensions
+        h, w = small_frame.shape[:2]
+
+        # Find the face with highest confidence
+        for i in range(detections.shape[2]):
+            confidence = detections[0, 0, i, 2]
+            if confidence > 0.5 and confidence > max_confidence:  # Confidence threshold
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (x, y, x2, y2) = box.astype("int")
+                max_face = (x, y, x2 - x, y2 - y)
+                max_confidence = confidence
+
+        if max_face is not None:
+            (x, y, w, h) = max_face
+
+            # Scale up the coordinates to match the original frame size
+            y = int(y / PROCESSING_SCALE)
+            h = int(h / PROCESSING_SCALE)
+
+            self.target_y = y + h // 2  # Set target y position based on the detected face
+
+        # Apply dead zone
+        if abs(self.target_y - self.y) > self.dead_zone:
+            # Calculate direction and apply max speed
+            direction = 1 if self.target_y > self.y else -1
+            move_amount = min(abs(self.target_y - self.y), self.max_speed)
+            new_y = self.y + direction * move_amount
+
+            # Update position history
+            self.y_history.pop(0)
+            self.y_history.append(new_y)
+
+            # Set new position with weighted average (more weight to recent positions)
+            self.y = int((self.y_history[0] + 2 * self.y_history[1] + 3 * self.y_history[2]) / 6)
 
     def draw(self, screen):
         screen.blit(bird_image, (self.x, self.y))
+
 
 # Pipe class
 class Pipe:
@@ -96,13 +143,16 @@ class Pipe:
         return self.x < -PIPE_WIDTH
 
     def collide(self, bird):
-        within_pipe_x_bounds = bird.x +50 > self.x and bird.x < self.x + PIPE_WIDTH
-        
-        within_top_pipe_y_bounds = bird.y-25 >= 0 and bird.y < self.height
-        
-        within_bottom_pipe_y_bounds = bird.y-25 + int(SCREEN_HEIGHT * BIRD_HEIGHT_PERCENT_TO_SCREEN) > self.height + int(3.5 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT) and bird.y <= SCREEN_HEIGHT
-        
+        within_pipe_x_bounds = bird.x + 50 > self.x and bird.x < self.x + PIPE_WIDTH
+
+        within_top_pipe_y_bounds = bird.y - 25 >= 0 and bird.y < self.height
+
+        within_bottom_pipe_y_bounds = bird.y - 25 + int(
+            SCREEN_HEIGHT * BIRD_HEIGHT_PERCENT_TO_SCREEN) > self.height + int(
+            3.5 * BIRD_HEIGHT_PERCENT_TO_SCREEN * SCREEN_HEIGHT) and bird.y <= SCREEN_HEIGHT
+
         return within_pipe_x_bounds and (within_top_pipe_y_bounds or within_bottom_pipe_y_bounds)
+
 
 # Game Manager class
 class GameManager:
@@ -143,14 +193,24 @@ class GameManager:
         font = pygame.font.Font(None, 74)
         text = font.render(str(self.score), 1, WHITE)
         screen.blit(text, (SCREEN_WIDTH // 2, 50))
-    
+
     def display_score(self, screen, score):
         screen.blit(game_over_text, textRect)
         screen.blit(final_score_heading_text, final_score_heading_textRect)
-        final_score_text = font_small.render(score, True, (255,0,0), None )
+        
+        # display score
+        final_score_text = font_small.render(str(score), True, (255, 0, 0), None)
         final_score_textRect = final_score_text.get_rect()
-        final_score_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.2)
+        final_score_textRect.center = (SCREEN_WIDTH // 2.7, SCREEN_HEIGHT // 1.35)
         screen.blit(final_score_text, final_score_textRect)
+        
+        #display restart button
+        replay_text = font_small.render('Restart', True, (255, 0, 0))
+        replay_text_textRect = replay_text.get_rect()
+        replay_text_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.5)
+        screen.blit(replay_text, replay_text_textRect)
+        return replay_text_textRect
+
 
 # Game loop
 game = GameManager()
@@ -158,31 +218,35 @@ clock = pygame.time.Clock()
 
 running = True
 while running:
+    mouse_pos = pygame.mouse.get_pos()
+    mouse_clicked = False
     ret, frame = video_cam.read()
     if ret:
         # Rotate the frame 90 degrees clockwise if needed
         frame_render = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-        # Use the original frame directly without resizing
         frame_surface = pygame.surfarray.make_surface(cv2.cvtColor(frame_render, cv2.COLOR_BGR2RGB))
         screen.blit(frame_surface, (0, 0))  # Draw the webcam feed as background
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_clicked = True
 
-        game.update(frame)  # Update game state with the current frame
-        game.draw(screen)  # Draw the game elements
+        if game.is_game_over:
+            game.display_score(screen, game.score)
+            replay_text_textRect = game.display_score(screen, game.score)
+
+            # Check for click
+            if replay_text_textRect.collidepoint(mouse_pos) and mouse_clicked:
+                game.reset()
+        else:
+            game.update(frame)  # Update game state with the current frame
+            game.draw(screen)  # Draw the game elements
 
         pygame.display.flip()  # Update the display
         clock.tick(30)  # Maintain 30 FPS
-
-        if game.is_game_over:
-            print("Game Over! Final Score:", game.score)
-            game.display_score(screen, game.score)
-            pygame.display.update()
-            pygame.time.wait(2000)  # Wait for 2 seconds before resetting
-            game.reset()
 
 video_cam.release()
 cv2.destroyAllWindows()
