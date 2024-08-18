@@ -55,11 +55,7 @@ textRect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
 
 final_score_heading_text = font_small.render('Score', True, (255, 0, 0), None)
 final_score_heading_textRect = final_score_heading_text.get_rect()
-final_score_heading_textRect.center = (SCREEN_WIDTH // 2.7, SCREEN_HEIGHT // 1.5)
-
-final_score_text = font_small.render('Score', True, (255, 0, 0), None)
-final_score_textRect = final_score_text.get_rect()
-final_score_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.35)
+final_score_heading_textRect.center = (SCREEN_WIDTH // 2.5, SCREEN_HEIGHT // 1.5)
 
 # Class Bird
 class Bird:
@@ -70,8 +66,18 @@ class Bird:
         self.y_history = [self.y] * 3
         self.dead_zone = 5
         self.max_speed = 30
+        self.is_falling = False
+        self.fall_speed = 0
+        self.fall_acceleration = 0.5
+        self.max_fall_speed = 15
+        self.angle = 0
+        self.rotation_speed = 3
 
     def update(self, frame):
+        if self.is_falling:
+            self.fall()
+            return
+
         # Resize frame for faster processing
         small_frame = cv2.resize(frame, (0, 0), fx=PROCESSING_SCALE, fy=PROCESSING_SCALE)
 
@@ -120,9 +126,18 @@ class Bird:
             # Set new position with weighted average (more weight to recent positions)
             self.y = int((self.y_history[0] + 2 * self.y_history[1] + 3 * self.y_history[2]) / 6)
 
-    def draw(self, screen):
-        screen.blit(bird_image, (self.x, self.y))
+    def fall(self):
+        self.fall_speed += self.fall_acceleration
+        self.fall_speed = min(self.fall_speed, self.max_fall_speed)
+        self.y += self.fall_speed
 
+        # Rotate the bird to face downwards
+        if self.angle > -90:
+            self.angle -= self.rotation_speed
+
+    def draw(self, screen):
+        rotated_image = pygame.transform.rotate(bird_image, self.angle)
+        screen.blit(rotated_image, (self.x, self.y))
 
 # Pipe class
 class Pipe:
@@ -153,7 +168,6 @@ class Pipe:
 
         return within_pipe_x_bounds and (within_top_pipe_y_bounds or within_bottom_pipe_y_bounds)
 
-
 # Game Manager class
 class GameManager:
     def __init__(self):
@@ -182,6 +196,9 @@ class GameManager:
                     self.score += 1
                 if pipe.collide(self.bird):
                     self.is_game_over = True
+                    self.bird.is_falling = True
+        else:
+            self.bird.fall()
 
     def draw(self, screen):
         self.bird.draw(screen)
@@ -197,20 +214,16 @@ class GameManager:
     def display_score(self, screen, score):
         screen.blit(game_over_text, textRect)
         screen.blit(final_score_heading_text, final_score_heading_textRect)
-        
-        # display score
         final_score_text = font_small.render(str(score), True, (255, 0, 0), None)
         final_score_textRect = final_score_text.get_rect()
-        final_score_textRect.center = (SCREEN_WIDTH // 2.7, SCREEN_HEIGHT // 1.35)
+        final_score_textRect.center = (SCREEN_WIDTH // 2.5, SCREEN_HEIGHT // 1.35)
         screen.blit(final_score_text, final_score_textRect)
-        
-        #display restart button
+
         replay_text = font_small.render('Restart', True, (255, 0, 0))
         replay_text_textRect = replay_text.get_rect()
         replay_text_textRect.center = (SCREEN_WIDTH // 1.5, SCREEN_HEIGHT // 1.5)
         screen.blit(replay_text, replay_text_textRect)
         return replay_text_textRect
-
 
 # Game loop
 game = GameManager()
@@ -235,15 +248,19 @@ while running:
                 mouse_clicked = True
 
         if game.is_game_over:
-            game.display_score(screen, game.score)
-            replay_text_textRect = game.display_score(screen, game.score)
+            game.update(frame)  # Update even when game is over
+            game.draw(screen)   # Draw the game elements
 
-            # Check for click
-            if replay_text_textRect.collidepoint(mouse_pos) and mouse_clicked:
-                game.reset()
+            if game.bird.y >= SCREEN_HEIGHT - int(SCREEN_HEIGHT * 0.1) - bird_image.get_height():
+                game.display_score(screen, game.score)
+                replay_text_textRect = game.display_score(screen, game.score)
+
+                # Check for click
+                if replay_text_textRect.collidepoint(mouse_pos) and mouse_clicked:
+                    game.reset()
         else:
-            game.update(frame)  # Update game state with the current frame
-            game.draw(screen)  # Draw the game elements
+            game.update(frame)
+            game.draw(screen)
 
         pygame.display.flip()  # Update the display
         clock.tick(30)  # Maintain 30 FPS
